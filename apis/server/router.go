@@ -20,6 +20,9 @@ import (
 // versionMatcher defines to parse version url path.
 const versionMatcher = "/v{version:[0-9.]+}"
 
+// reqStats is used to calculate the request dealing status.
+var reqStats = &RequestStats{}
+
 func initRoute(s *Server) http.Handler {
 	r := mux.NewRouter()
 
@@ -27,6 +30,14 @@ func initRoute(s *Server) http.Handler {
 	s.addRoute(r, http.MethodGet, "/_ping", s.ping)
 	s.addRoute(r, http.MethodGet, "/info", s.info)
 	s.addRoute(r, http.MethodGet, "/version", s.version)
+	s.addRoute(r, http.MethodGet, "/stats", func(context context.Context, rw http.ResponseWriter, req *http.Request) (err error) {
+		return EncodeResponse(rw, http.StatusOK, types.ResponseStats{
+			AllRequests:    reqStats.getAllCount(),
+			Req2xx3xxCount: reqStats.get2xx3xxCount(),
+			Req4xxCount:    reqStats.get4xxCount(),
+			Req5xxCount:    reqStats.get5xxCount(),
+		})
+	})
 	s.addRoute(r, http.MethodPost, "/auth", s.auth)
 
 	// daemon, we still list this API into system manager.
@@ -75,7 +86,6 @@ func initRoute(s *Server) http.Handler {
 	s.addRoute(r, http.MethodDelete, "/volumes/{name:.*}", s.removeVolume)
 
 	// network
-
 	s.addRoute(r, http.MethodGet, "/networks", s.listNetwork)
 	s.addRoute(r, http.MethodPost, "/networks/create", s.createNetwork)
 	s.addRoute(r, http.MethodGet, "/networks/{id:.*}", s.getNetwork)
@@ -184,9 +194,13 @@ func filter(handler handler, s *Server) http.HandlerFunc {
 			logrus.Debugf("Calling %s %s, client %s", req.Method, req.URL.RequestURI(), clientInfo)
 		}
 
+		// increase the request number by 1.
+		reqStats.increaseReqCount()
+
 		// Start to handle request.
 		err := handler(ctx, w, req)
 		if err == nil {
+			reqStats.increase2xx3xxCount()
 			return
 		}
 		// Handle error if request handling fails.
@@ -224,6 +238,8 @@ func HandleErrorResponse(w http.ResponseWriter, err error) {
 		code = http.StatusConflict
 	}
 
+	calReqStatictics(code)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	enc := json.NewEncoder(w)
@@ -233,4 +249,14 @@ func HandleErrorResponse(w http.ResponseWriter, err error) {
 		Message: errMsg,
 	}
 	enc.Encode(resp)
+}
+
+// calReqStatictics will increase the 4xx count and 5xx count.
+func calReqStatictics(code int) {
+	if code >= http.StatusInternalServerError {
+		reqStats.increase5xxCount()
+	}
+	if code >= http.StatusBadRequest && code < http.StatusInternalServerError {
+		reqStats.increase4xxCount()
+	}
 }
