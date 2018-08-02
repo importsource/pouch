@@ -198,7 +198,7 @@ func TestSearch(t *testing.T) {
 
 			_, _, err = store.Search(namedRef)
 			assert.Equal(t, errtypes.IsNotfound(err), true)
-			assert.Equal(t, err.Error(), "image: "+namedRef.String()+": not found")
+			assert.Equal(t, err.Error(), "image "+namedRef.String()+": not found")
 		}
 
 		// should return 404 if the reference is 123x
